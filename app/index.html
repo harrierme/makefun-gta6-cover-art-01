@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neon Coast Cover Studio — GTA-style cover art maker</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main class="app">
+  <section class="controls" aria-label="Cover controls">
+    <h1>Neon Coast<br>Cover Studio</h1>
+    <p class="tag">Your photos + a caption, made into GTA-style poster cover art. Runs offline — photos never leave your machine.</p>
+
+    <label class="field">Your photos
+      <input id="photos" type="file" accept="image/*" multiple>
+      <span class="hint">Click a thumbnail to fill every panel with it.</span>
+    </label>
+    <div id="library" class="library" aria-label="Loaded photos"></div>
+
+    <fieldset>
+      <legend>Layout</legend>
+      <div id="layouts" class="opts"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Colour grade</legend>
+      <div id="grades" class="opts"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Post size</legend>
+      <div id="sizes" class="opts"></div>
+    </fieldset>
+
+    <label class="field">Title
+      <input id="title" type="text" maxlength="30" value="NEON COAST" autocomplete="off">
+    </label>
+    <label class="field">Subtitle
+      <input id="subtitle" type="text" maxlength="40" value="chasing the sunset" autocomplete="off">
+    </label>
+
+    <fieldset>
+      <legend id="panel-label">Panel 1</legend>
+      <label class="field">Photo in this panel
+        <select id="panel-photo"></select>
+      </label>
+      <label class="field">Zoom
+        <input id="zoom" type="range" min="1" max="2.5" step="0.01" value="1">
+      </label>
+      <div class="row">
+        <button id="center-panel" type="button">Centre photo</button>
+        <button id="undo" type="button" disabled>Undo</button>
+        <button id="redo" type="button" disabled>Redo</button>
+      </div>
+      <p class="hint">Click a panel, then drag to position its photo.</p>
+    </fieldset>
+
+    <button id="export" type="button" class="export">Export PNG 1920 x 1080</button>
+    <p id="status" role="status">Two sample photos loaded — try it, then add your own.</p>
+    <p class="fine">Original art and lettering (Anton &amp; Pacifico, SIL Open Font License). No Rockstar Games logo, artwork or font.</p>
+  </section>
+  <section class="preview" aria-label="Live preview">
+    <canvas id="cover" width="1920" height="1080" aria-label="The cover"></canvas>
+  </section>
+</main>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
