@@ -1,7 +1,7 @@
-// Neon Coast Cover Studio — the entry program (Node 22, standard library
-// only). It hands the app in: copies this repository's app/ and
-// screenshots/ to /output and writes /output/dossier.json with the vendored
-// make.fun library's buildDossier, exactly as the kit's starter does.
+// Vice Cover Lab — the entry program (Node 22, standard library only).
+// It hands the app in: copies this repository's app/ and screenshots/ to
+// /output and writes /output/dossier.json with the vendored make.fun
+// library's buildDossier, exactly as the kit's starter does.
 //
 // Serve the app locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
@@ -25,6 +25,8 @@ if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), joi
 // 4 screenshots or one over 256 KiB; more than 993 files in app/ or 48 MiB
 // of app files, in all, or a path under app/ over 1000 bytes: app/ counts
 // beside /output's own 1000-entry cap, its screenshots/ and dossier.json).
+// Vice Cover Lab ships 4 screenshots and a lean offline app, well inside
+// every cap: 6 layouts, 6 grades, 4 export sizes, 4 sample photos.
 writeFileSync(
   join(out, 'dossier.json'),
   buildDossier(out, {

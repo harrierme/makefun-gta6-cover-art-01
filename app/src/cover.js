@@ -1,13 +1,15 @@
-// Neon Coast Cover Studio — the cover engine.
+// Vice Cover Lab — the cover engine.
 //
-// Draws a GTA-poster-style multi-panel cover onto a canvas: several photo
-// panels in a white-guttered grid, a Vice City sunset / neon colour grade,
-// a halftone title block with bold Anton lettering and a Pacifico script
-// subtitle, grain and a vignette. Everything is drawn, nothing is an image
-// asset: the only photos are the ones the person loads (or the two free
-// sample photos the app ships with).
+// Draws a poster-style multi-panel cover onto a canvas: several photo
+// panels in a white-guttered grid, a sunset / neon colour grade, a badge
+// ribbon in the top corner, a halftone title block with bold Anton
+// lettering and a Pacifico script subtitle, grain and a vignette.
+// Everything is drawn, nothing is an image asset: the only photos are the
+// ones the person loads (or the four free sample photos the app ships
+// with). All lettering and art is original — no Rockstar Games logo,
+// artwork, character or font is used anywhere.
 
-// Four layouts. Each entry has a label for the editor and a panels(w, h)
+// Six layouts. Each entry has a label for the editor and a panels(w, h)
 // function returning the panel rects. A panel is { x, y, w, h, rot, slot }:
 // rot is a tilt in degrees, slot is which of the four photo slots fills it.
 export const LAYOUTS = {
@@ -61,9 +63,38 @@ export const LAYOUTS = {
       { x: w * 0.55, y: h * 0.07, w: pw, h: ph, rot: 5, slot: 2 },
     ];
   } },
+  duo: { label: 'Duo Split', panels: (w, h) => {
+    // Two large side-by-side panels above the title band: one photo each,
+    // split down the middle by the white gutter.
+    const g = Math.round(w * 0.012);
+    const bh = h * 0.19; // title band height, matched in drawCover
+    const pw = (w - g) / 2;
+    const ph = h - bh - g;
+    return [
+      { x: 0, y: 0, w: pw, h: ph, rot: 0, slot: 0 },
+      { x: pw + g, y: 0, w: pw, h: ph, rot: 0, slot: 1 },
+    ];
+  } },
+  strip: { label: 'Film Strip', panels: (w, h) => {
+    // A horizontal strip of four small panels across the top, one large
+    // hero panel underneath, and the title band at the foot.
+    const g = Math.round(w * 0.012);
+    const bh = h * 0.19;
+    const sw = (w - 3 * g) / 4;
+    const sh = h * 0.17;
+    const heroY = sh + g;
+    const heroH = h - bh - heroY - g;
+    return [
+      { x: 0, y: 0, w: sw, h: sh, rot: 0, slot: 0 },
+      { x: sw + g, y: 0, w: sw, h: sh, rot: 0, slot: 1 },
+      { x: 2 * (sw + g), y: 0, w: sw, h: sh, rot: 0, slot: 2 },
+      { x: 3 * (sw + g), y: 0, w: sw, h: sh, rot: 0, slot: 3 },
+      { x: 0, y: heroY, w, h: heroH, rot: 0, slot: 0 },
+    ];
+  } },
 };
 
-// Five colour grades: a canvas filter for the photo, an overlay gradient
+// Six colour grades: a canvas filter for the photo, an overlay gradient
 // painted over it, and the wash colour for the title block.
 export const GRADES = {
   sunset: {
@@ -101,13 +132,25 @@ export const GRADES = {
     band: ['#2b0630', '#8e1e7e', '#ff6ec7'],
     accent: '#ffd6f2',
   },
+  mono: {
+    label: 'Mono Noir',
+    filter: 'grayscale(1) contrast(1.28) brightness(1.06)',
+    overlay: ['rgba(255, 255, 255, 0.08)', 'rgba(0, 0, 0, 0.10)', 'rgba(255, 255, 255, 0.06)'],
+    band: ['#0d0d0d', '#4a4a4a', '#c8c8c8'],
+    accent: '#f2f2f2',
+  },
 };
 
 export const SIZES = {
   square: { label: 'Square 1080 x 1080', w: 1080, h: 1080 },
   portrait: { label: 'Portrait 1080 x 1350', w: 1080, h: 1350 },
   wide: { label: 'Wide 1920 x 1080', w: 1920, h: 1080 },
+  story: { label: 'Story 1080 x 1920', w: 1080, h: 1920 },
 };
+
+// The badge ribbon label: an invented place name, drawn as original art.
+// It is not a Rockstar wordmark and the ribbon carries no logo.
+export const BADGE_LABEL = 'LEONIDA NIGHTS';
 
 // A photo slot: which library photo it shows, and its crop (zoom + pan).
 // zoom 1 = cover-fit; x/y are pan offsets in fractions of the panel size.
@@ -115,8 +158,8 @@ export function defaultSlots() {
   return [
     { photo: 0, zoom: 1, x: 0, y: 0 },
     { photo: 1, zoom: 1, x: 0, y: 0 },
-    { photo: 0, zoom: 1.15, x: 0, y: 0 },
-    { photo: 1, zoom: 1.15, x: 0, y: 0 },
+    { photo: 2, zoom: 1.15, x: 0, y: 0 },
+    { photo: 3, zoom: 1.15, x: 0, y: 0 },
   ];
 }
 
@@ -212,7 +255,7 @@ function drawTitleBlock(ctx, x, y, w, h, title, subtitle, grade) {
   ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
   ctx.fillRect(x, y, w, Math.max(3, h * 0.03));
 
-  const text = (title || 'NEON COAST').trim().toUpperCase();
+  const text = (title || 'VICE COVER').trim().toUpperCase();
   const size = fitTitle(ctx, text, w * 0.92, h * 0.52);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -233,13 +276,52 @@ function drawTitleBlock(ctx, x, y, w, h, title, subtitle, grade) {
     ctx.shadowBlur = 0;
   }
 
-  // Heat meter: five stars, top right of the band.
-  const starSize = Math.max(12, h * 0.13);
-  ctx.font = `${starSize}px sans-serif`;
-  ctx.fillStyle = grade.accent;
-  ctx.textAlign = 'right';
-  ctx.fillText('★★★★★', x + w - w * 0.03, y + h * 0.16);
+  // Heat meter: five stars, top right of the band — but only when the
+  // title leaves room for them, so they never print over the lettering.
+  ctx.font = `${size}px Anton, 'Arial Black', sans-serif`;
+  const titleWidth = ctx.measureText(text).width;
+  if (titleWidth <= w * 0.62) {
+    const starSize = Math.max(12, h * 0.13);
+    ctx.font = `${starSize}px sans-serif`;
+    ctx.fillStyle = grade.accent;
+    ctx.textAlign = 'right';
+    ctx.fillText('★★★★★', x + w - w * 0.03, y + h * 0.16);
+    ctx.textAlign = 'center';
+  }
+}
+
+// The badge ribbon: a diagonal banner across the top-right corner of the
+// cover, with a star and the invented label. Drawn last (before grain) so
+// it sits on top of every panel, like a sticker on a printed poster.
+export function drawBadgeRibbon(ctx, w, h, grade) {
+  const bandH = Math.max(28, w * 0.045);
+  const diag = Math.hypot(w, h);
+  // The ribbon's centre line crosses the top edge and the right edge the
+  // same distance L from the corner, so the band sits diagonally across
+  // the corner instead of merely touching it.
+  const L = bandH * 4;
+  ctx.save();
+  ctx.translate(w - L / 2, L / 2);
+  ctx.rotate(Math.PI / 4);
+  // The ribbon is long enough to cross the corner on any aspect ratio.
+  const ribbon = ctx.createLinearGradient(-diag / 2, 0, diag / 2, 0);
+  ribbon.addColorStop(0, grade.band[0]);
+  ribbon.addColorStop(0.5, grade.band[2]);
+  ribbon.addColorStop(1, grade.band[0]);
+  ctx.fillStyle = ribbon;
+  ctx.fillRect(-diag / 2, -bandH / 2, diag, bandH);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.fillRect(-diag / 2, -bandH / 2, diag, Math.max(2, bandH * 0.06));
+  ctx.fillRect(-diag / 2, bandH / 2 - Math.max(2, bandH * 0.06), diag, Math.max(2, bandH * 0.06));
+  const fontSize = Math.max(16, bandH * 0.52);
+  ctx.font = `${fontSize}px Anton, 'Arial Black', sans-serif`;
   ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+  ctx.shadowBlur = fontSize * 0.25;
+  ctx.fillText(`★ ${BADGE_LABEL} ★`, 0, 1);
+  ctx.restore();
 }
 
 // Film grain from a tiny random tile, and a vignette that darkens the rim.
@@ -311,14 +393,16 @@ function drawSunsetSky(ctx, w, h) {
   }
 }
 
-// The full cover. `state` is { layout, grade, title, subtitle, slots } and
-// `photos` is the library array (Image or null). `opts.selected` draws a
-// dashed selection outline around one panel (editor only, never exported).
+// The full cover. `state` is { layout, grade, title, subtitle, slots,
+// badge } and `photos` is the library array (Image or null).
+// `opts.selected` draws a dashed selection outline around one panel
+// (editor only, never exported).
 export function drawCover(canvas, state, photos, opts = {}) {
   const ctx = canvas.getContext('2d');
   const { width: w, height: h } = canvas;
   const grade = GRADES[state.grade] || GRADES.sunset;
-  const panels = LAYOUTS[state.layout].panels(w, h);
+  const layout = LAYOUTS[state.layout] || LAYOUTS.hero;
+  const panels = layout.panels(w, h);
 
   // White poster board, then the layout's backdrop.
   ctx.fillStyle = '#ffffff';
@@ -345,6 +429,9 @@ export function drawCover(canvas, state, photos, opts = {}) {
     drawTitleBlock(ctx, 0, h - bh, w, bh, state.title, state.subtitle, grade);
   }
 
+  // Badge ribbon on top of everything (unless the editor turned it off).
+  if (state.badge !== false) drawBadgeRibbon(ctx, w, h, grade);
+
   drawGrainAndVignette(ctx, w, h);
 
   if (opts.selected != null && panels[opts.selected]) {
@@ -362,7 +449,8 @@ export function drawCover(canvas, state, photos, opts = {}) {
 // Panel hit-test: which panel (index into the layout's panel list) holds
 // the point (px, py) in canvas pixels, or -1.
 export function panelAt(state, w, h, px, py) {
-  const panels = LAYOUTS[state.layout].panels(w, h);
+  const layout = LAYOUTS[state.layout] || LAYOUTS.hero;
+  const panels = layout.panels(w, h);
   for (let i = panels.length - 1; i >= 0; i--) {
     const p = panels[i];
     if (px >= p.x && px <= p.x + p.w && py >= p.y && py <= p.y + p.h) return i;

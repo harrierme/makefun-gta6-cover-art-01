@@ -3,13 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Neon Coast Cover Studio — GTA-style cover art maker</title>
+<title>Vice Cover Lab — GTA-style cover art maker</title>
+<meta name="description" content="Vice Cover Lab turns your photos and a caption into GTA-style multi-panel cover art, offline, in four post sizes.">
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 <main class="app">
   <section class="controls" aria-label="Cover controls">
-    <h1>Neon Coast<br>Cover Studio</h1>
+    <h1>Vice Cover<br>Lab</h1>
     <p class="tag">Your photos + a caption, made into GTA-style poster cover art. Runs offline — photos never leave your machine.</p>
 
     <label class="field">Your photos
@@ -21,24 +22,29 @@
     <fieldset>
       <legend>Layout</legend>
       <div id="layouts" class="opts"></div>
+      <p class="hint">Six layouts: Hero + 3, Nine-Panel Grid, Full Bleed, Tilted Snapshots, Duo Split and Film Strip.</p>
     </fieldset>
 
     <fieldset>
       <legend>Colour grade</legend>
       <div id="grades" class="opts"></div>
+      <p class="hint">Six grades, including the high-contrast black-and-white Mono Noir.</p>
     </fieldset>
 
     <fieldset>
       <legend>Post size</legend>
       <div id="sizes" class="opts"></div>
+      <p class="hint">Story is the tall 1080 x 1920 size for stories and reels covers.</p>
     </fieldset>
 
     <label class="field">Title
-      <input id="title" type="text" maxlength="30" value="NEON COAST" autocomplete="off">
+      <input id="title" type="text" maxlength="30" value="VICE COVER" autocomplete="off">
     </label>
     <label class="field">Subtitle
       <input id="subtitle" type="text" maxlength="40" value="chasing the sunset" autocomplete="off">
     </label>
+
+    <label class="check"><input id="badge" type="checkbox" checked> Badge ribbon — diagonal “LEONIDA NIGHTS” ribbon on the cover</label>
 
     <fieldset>
       <legend id="panel-label">Panel 1</legend>
@@ -57,7 +63,8 @@
     </fieldset>
 
     <button id="export" type="button" class="export">Export PNG 1920 x 1080</button>
-    <p id="status" role="status">Two sample photos loaded — try it, then add your own.</p>
+    <button id="export-all" type="button" class="export export-all">Export all sizes — 4 PNGs</button>
+    <p id="status" role="status">Four sample photos loaded — try it, then add your own.</p>
     <p class="fine">Original art and lettering (Anton &amp; Pacifico, SIL Open Font License). No Rockstar Games logo, artwork or font.</p>
   </section>
   <section class="preview" aria-label="Live preview">

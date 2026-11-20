@@ -1,12 +1,13 @@
-// Neon Coast Cover Studio — wires the editor page.
+// Vice Cover Lab — wires the editor page.
 //
 // Flow: pick photos (yours, from your machine — nothing is uploaded),
 // choose a layout, a colour grade and a post size, type the title and
-// subtitle, click a panel to select it, drag it to position its photo and
-// zoom it, then Export PNG. A `?shot=` query sets up a fixed scene for a
+// subtitle, toggle the badge ribbon, click a panel to select it, drag it
+// to position its photo and zoom it, then Export PNG — one size, or all
+// four sizes at once. A `?shot=` query sets up a fixed scene for a
 // screenshot instead (./shots.js).
 
-import { drawCover, panelAt, defaultSlots, LAYOUTS, GRADES, SIZES } from './cover.js';
+import { drawCover, panelAt, defaultSlots, LAYOUTS, GRADES, SIZES, BADGE_LABEL } from './cover.js';
 import { runShot } from './shots.js';
 
 const canvas = document.getElementById('cover');
@@ -17,6 +18,7 @@ const zoomInput = document.getElementById('zoom');
 const panelPhotoSelect = document.getElementById('panel-photo');
 const panelLabel = document.getElementById('panel-label');
 const libraryRow = document.getElementById('library');
+const badgeToggle = document.getElementById('badge');
 
 // The editor state. `slots` holds the four photo slots; each panel of the
 // current layout shows one slot. `photos` is the library of loaded images.
@@ -24,8 +26,9 @@ export const state = {
   layout: 'hero',
   grade: 'sunset',
   size: 'wide',
-  title: 'NEON COAST',
+  title: 'VICE COVER',
   subtitle: 'chasing the sunset',
+  badge: true,
   slots: defaultSlots(),
 };
 export const photos = []; // { img, name }
@@ -37,7 +40,7 @@ const undoStack = [];
 const redoStack = [];
 function snapshot() {
   return JSON.stringify({ layout: state.layout, grade: state.grade, size: state.size,
-    title: state.title, subtitle: state.subtitle, slots: state.slots });
+    title: state.title, subtitle: state.subtitle, badge: state.badge, slots: state.slots });
 }
 function restore(json) {
   const s = JSON.parse(json);
@@ -115,6 +118,7 @@ function buildOptionRow(el, entries, current, onPick) {
 function syncControls() {
   titleInput.value = state.title;
   subtitleInput.value = state.subtitle;
+  badgeToggle.checked = state.badge !== false;
   zoomInput.value = String(currentSlot().zoom);
   buildOptionRow(document.getElementById('layouts'), LAYOUTS, state.layout, (k) => { state.layout = k; });
   buildOptionRow(document.getElementById('grades'), GRADES, state.grade, (k) => { state.grade = k; });
@@ -198,6 +202,14 @@ for (const el of [titleInput, subtitleInput, zoomInput]) {
   el.addEventListener('pointerdown', pushHistory, { once: false });
 }
 
+// The badge ribbon toggle: the diagonal "LEONIDA NIGHTS" ribbon in the
+// top-right corner of the cover, on or off.
+badgeToggle.addEventListener('change', () => {
+  pushHistory();
+  state.badge = badgeToggle.checked;
+  redraw();
+});
+
 panelPhotoSelect.addEventListener('change', () => {
   pushHistory();
   currentSlot().photo = Number(panelPhotoSelect.value);
@@ -256,21 +268,50 @@ canvas.addEventListener('pointerup', () => {
   drag = null;
 });
 
+// Renders the current cover at `sizeKey` off-screen and starts a download.
+function downloadSize(sizeKey) {
+  return new Promise((resolve) => {
+    const size = SIZES[sizeKey];
+    const off = document.createElement('canvas');
+    off.width = size.w;
+    off.height = size.h;
+    drawCover(off, state, photos.map((p) => p.img));
+    off.toBlob((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `vice-cover-lab-${size.w}x${size.h}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      resolve();
+    }, 'image/png');
+  });
+}
+
 // Export: render the cover at full size with no selection outline and
 // download it as a PNG.
-document.getElementById('export').addEventListener('click', () => {
+document.getElementById('export').addEventListener('click', async () => {
   const size = SIZES[state.size];
-  const off = document.createElement('canvas');
-  off.width = size.w;
-  off.height = size.h;
-  drawCover(off, state, photos.map((p) => p.img));
-  off.toBlob((blob) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `neon-coast-cover-${size.w}x${size.h}.png`;
-    a.click();
-    status.textContent = `Saved neon-coast-cover-${size.w}x${size.h}.png — share it.`;
-  }, 'image/png');
+  await downloadSize(state.size);
+  status.textContent = `Saved vice-cover-lab-${size.w}x${size.h}.png — share it.`;
+});
+
+// Export all sizes: the same cover rendered at square, portrait, wide and
+// story, one file each, downloaded one after another so the browser does
+// not drop any of the four.
+document.getElementById('export-all').addEventListener('click', async () => {
+  const btn = document.getElementById('export-all');
+  btn.disabled = true;
+  const keys = Object.keys(SIZES);
+  for (let i = 0; i < keys.length; i++) {
+    status.textContent = `Exporting ${i + 1} of ${keys.length} sizes…`;
+    // eslint-disable-next-line no-await-in-loop
+    await downloadSize(keys[i]);
+    // A short pause between downloads: browsers throttle rapid downloads.
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+  btn.disabled = false;
+  status.textContent = `Saved all ${keys.length} sizes — vice-cover-lab-*.png.`;
 });
 
 // Fonts first: Anton for the title, Pacifico for the subtitle, Bebas Neue
@@ -287,7 +328,15 @@ async function loadFonts() {
   redraw();
 }
 
-// Boot: the two free sample photos are already in the library, so the
+// The four free sample photos shipped with the app, in library order.
+export const SAMPLE_PHOTOS = [
+  { file: 'samples/boulevard.jpg', name: 'Boulevard' },
+  { file: 'samples/pier.jpg', name: 'Pier' },
+  { file: 'samples/rooftop.jpg', name: 'Rooftop' },
+  { file: 'samples/neon.jpg', name: 'Neon Street' },
+];
+
+// Boot: the four free sample photos are already in the library, so the
 // first thing a person sees is a finished cover, not an empty page.
 const shot = new URLSearchParams(location.search).get('shot');
 async function boot() {
@@ -298,14 +347,12 @@ async function boot() {
       selectPanel: (i) => { selectedPanel = i; },
     });
   } else {
-    const [boulevard, pier] = await Promise.all([
-      loadImage('samples/boulevard.jpg'),
-      loadImage('samples/pier.jpg'),
-    ]);
-    photos.push({ img: boulevard, name: 'Boulevard' }, { img: pier, name: 'Pier' });
+    const loaded = await Promise.all(SAMPLE_PHOTOS.map((s) => loadImage(s.file)));
+    loaded.forEach((img, i) => photos.push({ img, name: SAMPLE_PHOTOS[i].name }));
     renderLibrary();
     syncControls();
     redraw();
+    status.textContent = `Four sample photos loaded (${BADGE_LABEL} ribbon on) — try it, then add your own.`;
   }
 }
 boot();

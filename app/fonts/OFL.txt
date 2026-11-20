@@ -1,8 +1,16 @@
-Copyright 2020 The Anton Project Authors (https://github.com/googlefonts/AntonFont.git)
+SIL Open Font License, Version 1.1 — covers the three fonts vendored
+in this folder for Vice Cover Lab: Anton (Anton-Regular.ttf), Pacifico
+(Pacifico-Regular.ttf) and Bebas Neue (BebasNeue-Regular.ttf). The full
+license text follows; each font is also available from its project under
+the same license.
+
+Copyright 2020 The Anton Project Authors (github.com/googlefonts/AntonFont.git)
+Copyright 2011 The Pacifico Project Authors (github.com/google/fonts — ofl/pacifico)
+Copyright 2019 The Bebas Neue Project Authors (github.com/google/fonts — ofl/bebasneue)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
-http://scripts.sil.org/OFL
+scripts.sil.org/OFL
 
 
 -----------------------------------------------------------
