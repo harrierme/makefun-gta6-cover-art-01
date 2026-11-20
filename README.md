@@ -35,3 +35,11 @@ The sample photos were made with an image model and are free to use. Anton and P
 Built for [Make GTA 6 Cover Art](https://make.fun/bounty/gta6-cover-art-01) on make.fun.
 
 Optional: earn referral rewards, a second way to make money — [join make.fun with my referral link](https://make.fun/?ref=efmrhagc).
+
+## Verification
+
+Ran the app in headless Chromium (Playwright, route-interception render) on 20 Nov 2026:
+0 console errors, 0 page errors, 0 failed requests across all four shots.
+Screenshots in `screenshots/` (all JPEG, long side ≤ 1280, each ≤ 256 KiB):
+`1-cover.jpg` story 720×1280, `2-editor.jpg` editor 1280×800,
+`3-cover.jpg` square 1080×1080, `4-cover.jpg` wide 1280×720.
