@@ -1,358 +1,404 @@
-// Vice Cover Lab — wires the editor page.
-//
-// Flow: pick photos (yours, from your machine — nothing is uploaded),
-// choose a layout, a colour grade and a post size, type the title and
-// subtitle, toggle the badge ribbon, click a panel to select it, drag it
-// to position its photo and zoom it, then Export PNG — one size, or all
-// four sizes at once. A `?shot=` query sets up a fixed scene for a
-// screenshot instead (./shots.js).
+// Vice Cover Lab — the editor.
+// Wires the photo library, the layouts, the grades and the caption inputs to
+// a live canvas preview, and exports PNGs in the post sizes. Photos never
+// leave the machine: library photos are files under app/, uploads are read
+// with FileReader and kept in memory only.
 
-import { drawCover, panelAt, defaultSlots, LAYOUTS, GRADES, SIZES, BADGE_LABEL } from './cover.js';
-import { runShot } from './shots.js';
+import { SIZES, LAYOUTS, GRADES, drawCover, renderCover, panelAt, layoutById, gradeById, sizeById } from './cover.js';
+import { library, loadAllPhotos, addUpload } from './photos.js';
 
-const canvas = document.getElementById('cover');
-const titleInput = document.getElementById('title');
-const subtitleInput = document.getElementById('subtitle');
-const status = document.getElementById('status');
-const zoomInput = document.getElementById('zoom');
-const panelPhotoSelect = document.getElementById('panel-photo');
-const panelLabel = document.getElementById('panel-label');
-const libraryRow = document.getElementById('library');
-const badgeToggle = document.getElementById('badge');
+const $ = (id) => document.getElementById(id);
 
-// The editor state. `slots` holds the four photo slots; each panel of the
-// current layout shows one slot. `photos` is the library of loaded images.
-export const state = {
-  layout: 'hero',
-  grade: 'sunset',
-  size: 'wide',
-  title: 'VICE COVER',
-  subtitle: 'chasing the sunset',
-  badge: true,
-  slots: defaultSlots(),
-};
-export const photos = []; // { img, name }
-let selectedPanel = 0;
+const PREVIEW_LONG = 640;
 
-// Undo / redo: a stack of state snapshots (photos are not snapshotted,
-// only which slot shows which photo and its crop).
-const undoStack = [];
-const redoStack = [];
+function defaultPanels(layoutId) {
+  const layout = layoutById(layoutId);
+  const order = ['boulevard', 'rooftop', 'neon', 'pier'];
+  return layout.panels.map((_, i) => ({
+    photo: order[i % order.length],
+    zoom: 1,
+    fx: 0.5,
+    fy: 0.5,
+  }));
+}
+
+function defaultState() {
+  return {
+    layoutId: 'hero-split',
+    gradeId: 'vice-sunset',
+    title: 'LEONIDA NIGHTS',
+    subtitle: 'Vice City, 2026',
+    sizeId: 'story',
+    panels: defaultPanels('hero-split'),
+  };
+}
+
+let state = defaultState();
+let images = new Map();
+let selected = 0;
+let undoStack = [];
+let redoStack = [];
+let dragging = null;
+
+/** A snapshot of the state, for undo/redo. */
 function snapshot() {
-  return JSON.stringify({ layout: state.layout, grade: state.grade, size: state.size,
-    title: state.title, subtitle: state.subtitle, badge: state.badge, slots: state.slots });
+  return JSON.parse(JSON.stringify(state));
 }
-function restore(json) {
-  const s = JSON.parse(json);
-  Object.assign(state, s);
-  syncControls();
-}
-function pushHistory() {
+
+/** Pushes the current state before a change, and clears the redo stack. */
+function commit() {
   undoStack.push(snapshot());
   if (undoStack.length > 60) undoStack.shift();
-  redoStack.length = 0;
-  syncHistoryButtons();
+  redoStack = [];
+  updateHistoryButtons();
 }
+
 function undo() {
-  if (!undoStack.length) return;
+  if (undoStack.length === 0) return;
   redoStack.push(snapshot());
-  restore(undoStack.pop());
-  redraw();
-  syncHistoryButtons();
+  state = undoStack.pop();
+  selected = Math.min(selected, state.panels.length - 1);
+  syncControls();
+  render();
+  updateHistoryButtons();
 }
+
 function redo() {
-  if (!redoStack.length) return;
+  if (redoStack.length === 0) return;
   undoStack.push(snapshot());
-  restore(redoStack.pop());
-  redraw();
-  syncHistoryButtons();
-}
-function syncHistoryButtons() {
-  document.getElementById('undo').disabled = !undoStack.length;
-  document.getElementById('redo').disabled = !redoStack.length;
+  state = redoStack.pop();
+  selected = Math.min(selected, state.panels.length - 1);
+  syncControls();
+  render();
+  updateHistoryButtons();
 }
 
-/** Loads an image from a URL, resolving to the image once it can be drawn. */
-export function loadImage(url) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = url;
-  });
+function updateHistoryButtons() {
+  $('undoBtn').disabled = undoStack.length === 0;
+  $('redoBtn').disabled = redoStack.length === 0;
 }
 
-// The preview canvas is drawn at the export size, CSS-scaled to fit.
-function redraw() {
-  const size = SIZES[state.size];
-  if (canvas.width !== size.w || canvas.height !== size.h) {
-    canvas.width = size.w;
-    canvas.height = size.h;
+/** The preview size for the current export size, long side capped. */
+function previewSize() {
+  const size = sizeById(state.sizeId);
+  const scale = PREVIEW_LONG / Math.max(size.w, size.h);
+  return { w: Math.round(size.w * scale), h: Math.round(size.h * scale) };
+}
+
+function render() {
+  const canvas = $('preview');
+  const { w, h } = previewSize();
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  drawCover(ctx, w, h, state, images);
+  // Outline the selected panel so the user sees which one they edit.
+  const layout = layoutById(state.layoutId);
+  const p = layout.panels[selected];
+  if (p) {
+    ctx.save();
+    ctx.strokeStyle = '#ff7a1a';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 6]);
+    ctx.strokeRect(p.x * w + 2, p.y * h + 2, p.w * w - 4, p.h * h - 4);
+    ctx.restore();
   }
-  drawCover(canvas, state, photos.map((p) => p.img), {
-    // The selection outline is editor chrome: never on a cover shot.
-    selected: document.body.classList.contains('shot-cover') ? null : selectedPanel,
-  });
-  document.getElementById('export').textContent = `Export PNG ${size.w} x ${size.h}`;
-}
-
-// Builds the option-button rows for layouts, grades and sizes.
-function buildOptionRow(el, entries, current, onPick) {
-  el.innerHTML = '';
-  for (const [key, value] of Object.entries(entries)) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'opt' + (key === current ? ' on' : '');
-    b.textContent = value.label || value;
-    b.dataset.key = key;
-    b.addEventListener('click', () => {
-      pushHistory();
-      onPick(key);
-      buildOptionRow(el, entries, key, onPick);
-      redraw();
-    });
-    el.appendChild(b);
-  }
+  const slot = state.panels[selected];
+  const photo = library.find((x) => x.id === slot?.photo);
+  $('selectedLabel').textContent = slot
+    ? `Panel ${selected + 1} — ${photo ? photo.label : slot.photo} · zoom ${slot.zoom.toFixed(2)}`
+    : 'No panel selected';
 }
 
 function syncControls() {
-  titleInput.value = state.title;
-  subtitleInput.value = state.subtitle;
-  badgeToggle.checked = state.badge !== false;
-  zoomInput.value = String(currentSlot().zoom);
-  buildOptionRow(document.getElementById('layouts'), LAYOUTS, state.layout, (k) => { state.layout = k; });
-  buildOptionRow(document.getElementById('grades'), GRADES, state.grade, (k) => { state.grade = k; });
-  buildOptionRow(document.getElementById('sizes'), SIZES, state.size, (k) => { state.size = k; });
-  syncPanelControls();
-}
-
-function currentSlot() {
-  const panels = drawCoverPanels();
-  const panel = panels[selectedPanel] || panels[0];
-  return state.slots[panel ? panel.slot : 0];
-}
-function drawCoverPanels() {
-  // Panel rects for the current layout at the preview size.
-  return LAYOUTS[state.layout].panels(canvas.width, canvas.height);
-}
-
-function syncPanelControls() {
-  const panels = drawCoverPanels();
-  const panel = panels[selectedPanel] || panels[0];
-  const slotIndex = panel ? panel.slot : 0;
-  panelLabel.textContent = `Panel ${selectedPanel + 1} of ${panels.length} — slot ${slotIndex + 1}`;
-  panelPhotoSelect.innerHTML = '';
-  photos.forEach((p, i) => {
-    const o = document.createElement('option');
-    o.value = String(i);
-    o.textContent = p.name;
-    if (state.slots[slotIndex].photo === i) o.selected = true;
-    panelPhotoSelect.appendChild(o);
+  $('titleInput').value = state.title;
+  $('subtitleInput').value = state.subtitle;
+  document.querySelectorAll('#layoutRow button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.id === state.layoutId);
   });
-  zoomInput.value = String(state.slots[slotIndex].zoom);
+  document.querySelectorAll('#gradeRow button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.id === state.gradeId);
+  });
+  document.querySelectorAll('#sizeRow button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.id === state.sizeId);
+  });
+  const slot = state.panels[selected];
+  if (slot) $('zoomRange').value = String(slot.zoom);
 }
 
-// The photo library strip: thumbnails of every loaded photo; clicking one
-// fills all four slots with it.
-function renderLibrary() {
-  libraryRow.innerHTML = '';
-  photos.forEach((p, i) => {
+function buildButtons() {
+  const layoutRow = $('layoutRow');
+  for (const layout of LAYOUTS) {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'thumb';
-    b.title = `${p.name} — click to fill all panels`;
-    const thumb = document.createElement('img');
-    thumb.src = p.img.src;
-    thumb.alt = p.name;
-    b.appendChild(thumb);
+    b.dataset.id = layout.id;
+    b.textContent = layout.name;
     b.addEventListener('click', () => {
-      pushHistory();
-      state.slots.forEach((s) => { s.photo = i; s.zoom = 1; s.x = 0; s.y = 0; });
-      syncPanelControls();
-      redraw();
+      if (state.layoutId === layout.id) return;
+      commit();
+      state.layoutId = layout.id;
+      state.panels = defaultPanels(layout.id);
+      selected = 0;
+      syncControls();
+      render();
     });
-    libraryRow.appendChild(b);
-  });
-  syncPanelControls();
-}
-
-async function addPhotoFile(file) {
-  const img = await loadImage(URL.createObjectURL(file));
-  photos.push({ img, name: file.name.replace(/\.[^.]+$/, '') });
-  renderLibrary();
-  redraw();
-  return photos.length - 1;
-}
-
-document.getElementById('photos').addEventListener('change', async (e) => {
-  for (const file of e.target.files) {
-    // eslint-disable-next-line no-await-in-loop
-    await addPhotoFile(file);
+    layoutRow.appendChild(b);
   }
-  status.textContent = `${photos.length} photo${photos.length === 1 ? '' : 's'} loaded — click a panel, drag to position it.`;
-  e.target.value = '';
-});
-
-titleInput.addEventListener('input', () => { state.title = titleInput.value; redraw(); });
-subtitleInput.addEventListener('input', () => { state.subtitle = subtitleInput.value; redraw(); });
-// Snapshot before the first keystroke / slider move, so Undo restores the
-// state from before the edit, not after it.
-for (const el of [titleInput, subtitleInput, zoomInput]) {
-  el.addEventListener('focus', pushHistory, { once: false });
-  el.addEventListener('pointerdown', pushHistory, { once: false });
+  const gradeRow = $('gradeRow');
+  for (const grade of GRADES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.id = grade.id;
+    b.textContent = grade.name;
+    b.addEventListener('click', () => {
+      if (state.gradeId === grade.id) return;
+      commit();
+      state.gradeId = grade.id;
+      syncControls();
+      render();
+    });
+    gradeRow.appendChild(b);
+  }
+  const sizeRow = $('sizeRow');
+  for (const size of SIZES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.id = size.id;
+    b.textContent = size.name;
+    b.addEventListener('click', () => {
+      if (state.sizeId === size.id) return;
+      commit();
+      state.sizeId = size.id;
+      syncControls();
+      render();
+    });
+    sizeRow.appendChild(b);
+  }
 }
 
-// The badge ribbon toggle: the diagonal "LEONIDA NIGHTS" ribbon in the
-// top-right corner of the cover, on or off.
-badgeToggle.addEventListener('change', () => {
-  pushHistory();
-  state.badge = badgeToggle.checked;
-  redraw();
-});
+function buildPhotoStrip() {
+  const strip = $('photoStrip');
+  strip.innerHTML = '';
+  for (const photo of library) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'photo-thumb';
+    b.dataset.id = photo.id;
+    b.title = `${photo.label} — ${photo.note}`;
+    const img = document.createElement('img');
+    img.src = photo.src;
+    img.alt = photo.label;
+    const span = document.createElement('span');
+    span.textContent = photo.label;
+    b.append(img, span);
+    b.addEventListener('click', () => {
+      commit();
+      state.panels[selected] = { ...state.panels[selected], photo: photo.id };
+      render();
+    });
+    strip.appendChild(b);
+  }
+}
 
-panelPhotoSelect.addEventListener('change', () => {
-  pushHistory();
-  currentSlot().photo = Number(panelPhotoSelect.value);
-  redraw();
-});
-zoomInput.addEventListener('input', () => {
-  currentSlot().zoom = Number(zoomInput.value);
-  redraw();
-});
-document.getElementById('center-panel').addEventListener('click', () => {
-  pushHistory();
-  const s = currentSlot();
-  s.x = 0;
-  s.y = 0;
-  s.zoom = 1;
-  syncPanelControls();
-  redraw();
-});
-document.getElementById('undo').addEventListener('click', undo);
-document.getElementById('redo').addEventListener('click', redo);
+/** The drawn size of a photo inside a panel rect, at a zoom, in cover pixels. */
+function photoDrawSize(img, rect, zoom) {
+  const scale = Math.max(rect.w / img.naturalWidth, rect.h / img.naturalHeight) * zoom;
+  return { dw: img.naturalWidth * scale, dh: img.naturalHeight * scale };
+}
 
-// Click a panel to select it; drag to pan its photo.
-let drag = null;
-function canvasPoint(e) {
-  const r = canvas.getBoundingClientRect();
+function previewPoint(evt) {
+  const canvas = $('preview');
+  const box = canvas.getBoundingClientRect();
   return {
-    x: ((e.clientX - r.left) / r.width) * canvas.width,
-    y: ((e.clientY - r.top) / r.height) * canvas.height,
+    x: ((evt.clientX - box.left) / box.width) * canvas.width,
+    y: ((evt.clientY - box.top) / box.height) * canvas.height,
   };
 }
-canvas.addEventListener('pointerdown', (e) => {
-  const p = canvasPoint(e);
-  const hit = panelAt(state, canvas.width, canvas.height, p.x, p.y);
-  if (hit < 0) return;
-  selectedPanel = hit;
-  const slot = currentSlot();
-  // Snapshot before the drag, so Undo restores the pre-drag crop.
-  pushHistory();
-  drag = { x: p.x, y: p.y, slotX: slot.x, slotY: slot.y, moved: false };
-  canvas.setPointerCapture(e.pointerId);
-  syncPanelControls();
-  redraw();
-});
-canvas.addEventListener('pointermove', (e) => {
-  if (!drag) return;
-  const p = canvasPoint(e);
-  const slot = currentSlot();
-  const dx = (p.x - drag.x) / canvas.width;
-  const dy = (p.y - drag.y) / canvas.height;
-  if (Math.abs(dx) + Math.abs(dy) > 0.002) drag.moved = true;
-  slot.x = drag.slotX + dx;
-  slot.y = drag.slotY + dy;
-  redraw();
-});
-canvas.addEventListener('pointerup', () => {
-  drag = null;
-});
 
-// Renders the current cover at `sizeKey` off-screen and starts a download.
-function downloadSize(sizeKey) {
+function wirePreview() {
+  const canvas = $('preview');
+  canvas.addEventListener('pointerdown', (evt) => {
+    const pt = previewPoint(evt);
+    const idx = panelAt(state.layoutId, canvas.width, canvas.height, pt.x, pt.y);
+    if (idx < 0) return;
+    selected = idx;
+    commit();
+    const layout = layoutById(state.layoutId);
+    const p = layout.panels[idx];
+    const rect = { x: p.x * canvas.width, y: p.y * canvas.height, w: p.w * canvas.width, h: p.h * canvas.height };
+    const slot = state.panels[idx];
+    const img = images.get(slot.photo);
+    const { dw, dh } = img ? photoDrawSize(img, rect, slot.zoom) : { dw: rect.w, dh: rect.h };
+    dragging = { lastX: pt.x, lastY: pt.y, dw, dh };
+    canvas.setPointerCapture(evt.pointerId);
+    render();
+  });
+  canvas.addEventListener('pointermove', (evt) => {
+    if (!dragging) return;
+    const pt = previewPoint(evt);
+    const dx = pt.x - dragging.lastX;
+    const dy = pt.y - dragging.lastY;
+    dragging.lastX = pt.x;
+    dragging.lastY = pt.y;
+    const slot = state.panels[selected];
+    slot.fx = Math.min(1, Math.max(0, slot.fx - dx / dragging.dw));
+    slot.fy = Math.min(1, Math.max(0, slot.fy - dy / dragging.dh));
+    render();
+  });
+  const endDrag = () => {
+    dragging = null;
+  };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+}
+
+function download(canvas, filename) {
   return new Promise((resolve) => {
-    const size = SIZES[sizeKey];
-    const off = document.createElement('canvas');
-    off.width = size.w;
-    off.height = size.h;
-    drawCover(off, state, photos.map((p) => p.img));
-    off.toBlob((blob) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        resolve();
+        return;
+      }
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `vice-cover-lab-${size.w}x${size.h}.png`;
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
       a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       resolve();
     }, 'image/png');
   });
 }
 
-// Export: render the cover at full size with no selection outline and
-// download it as a PNG.
-document.getElementById('export').addEventListener('click', async () => {
-  const size = SIZES[state.size];
-  await downloadSize(state.size);
-  status.textContent = `Saved vice-cover-lab-${size.w}x${size.h}.png — share it.`;
-});
+async function exportSize(sizeId) {
+  const size = sizeById(sizeId);
+  const canvas = renderCover(size.w, size.h, state, images);
+  await download(canvas, `vice-cover-lab-${sizeId}.png`);
+}
 
-// Export all sizes: the same cover rendered at square, portrait, wide and
-// story, one file each, downloaded one after another so the browser does
-// not drop any of the four.
-document.getElementById('export-all').addEventListener('click', async () => {
-  const btn = document.getElementById('export-all');
+async function exportAll() {
+  const btn = $('exportAllBtn');
   btn.disabled = true;
-  const keys = Object.keys(SIZES);
-  for (let i = 0; i < keys.length; i++) {
-    status.textContent = `Exporting ${i + 1} of ${keys.length} sizes…`;
-    // eslint-disable-next-line no-await-in-loop
-    await downloadSize(keys[i]);
-    // A short pause between downloads: browsers throttle rapid downloads.
-    // eslint-disable-next-line no-await-in-loop
-    await new Promise((resolve) => setTimeout(resolve, 350));
+  btn.textContent = 'Exporting…';
+  for (const size of SIZES) {
+    await exportSize(size.id);
+    await new Promise((r) => setTimeout(r, 400));
   }
   btn.disabled = false;
-  status.textContent = `Saved all ${keys.length} sizes — vice-cover-lab-*.png.`;
-});
-
-// Fonts first: Anton for the title, Pacifico for the subtitle, Bebas Neue
-// for the editor chrome. Redraw once they arrive so the cover never shows
-// a fallback face.
-async function loadFonts() {
-  try {
-    await Promise.all([
-      document.fonts.load('90px Anton'),
-      document.fonts.load('40px Pacifico'),
-      document.fonts.load('700 20px "Bebas Neue"'),
-    ]);
-  } catch { /* fallback faces still draw */ }
-  redraw();
+  btn.textContent = 'Export all 4 sizes';
 }
 
-// The four free sample photos shipped with the app, in library order.
-export const SAMPLE_PHOTOS = [
-  { file: 'samples/boulevard.jpg', name: 'Boulevard' },
-  { file: 'samples/pier.jpg', name: 'Pier' },
-  { file: 'samples/rooftop.jpg', name: 'Rooftop' },
-  { file: 'samples/neon.jpg', name: 'Neon Street' },
-];
+/** A full-frame cover for a screenshot scene (?shot=cover|square|wide). */
+function shotScene(name) {
+  const scenes = {
+    cover: { sizeId: 'story', layoutId: 'hero-split', gradeId: 'vice-sunset', title: 'LEONIDA NIGHTS', subtitle: 'Vice City, 2026' },
+    square: { sizeId: 'square', layoutId: 'four-grid', gradeId: 'neon-nights', title: 'NEON SHORE', subtitle: 'After dark in Vice City' },
+    wide: { sizeId: 'wide', layoutId: 'hero-left', gradeId: 'golden-hour', title: 'GOLDEN COAST', subtitle: 'Sunset on the boulevard' },
+  };
+  return scenes[name] ?? null;
+}
 
-// Boot: the four free sample photos are already in the library, so the
-// first thing a person sees is a finished cover, not an empty page.
-const shot = new URLSearchParams(location.search).get('shot');
-async function boot() {
-  await loadFonts();
-  if (shot) {
-    await runShot(shot, new URLSearchParams(location.search), {
-      state, photos, addPhotoFile, redraw, syncControls, renderLibrary, loadImage,
-      selectPanel: (i) => { selectedPanel = i; },
-    });
-  } else {
-    const loaded = await Promise.all(SAMPLE_PHOTOS.map((s) => loadImage(s.file)));
-    loaded.forEach((img, i) => photos.push({ img, name: SAMPLE_PHOTOS[i].name }));
-    renderLibrary();
+async function runShotScene(name) {
+  const scene = shotScene(name);
+  if (!scene) return false;
+  document.body.classList.add('shot-mode');
+  const canvas = $('shotCanvas');
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  canvas.width = w;
+  canvas.height = h;
+  const shotState = {
+    layoutId: scene.layoutId,
+    gradeId: scene.gradeId,
+    title: scene.title,
+    subtitle: scene.subtitle,
+    panels: defaultPanels(scene.layoutId),
+  };
+  const ctx = canvas.getContext('2d');
+  drawCover(ctx, w, h, shotState, images);
+  document.title = `Vice Cover Lab — ${name}`;
+  return true;
+}
+
+function wireControls() {
+  $('titleInput').addEventListener('input', (evt) => {
+    state.title = evt.target.value;
+    render();
+  });
+  $('titleInput').addEventListener('change', commit);
+  $('subtitleInput').addEventListener('input', (evt) => {
+    state.subtitle = evt.target.value;
+    render();
+  });
+  $('subtitleInput').addEventListener('change', commit);
+  $('zoomRange').addEventListener('input', (evt) => {
+    const slot = state.panels[selected];
+    if (!slot) return;
+    slot.zoom = Number(evt.target.value);
+    render();
+  });
+  $('zoomRange').addEventListener('change', commit);
+  $('centerBtn').addEventListener('click', () => {
+    const slot = state.panels[selected];
+    if (!slot) return;
+    commit();
+    slot.fx = 0.5;
+    slot.fy = 0.5;
+    slot.zoom = 1;
     syncControls();
-    redraw();
-    status.textContent = `Four sample photos loaded (${BADGE_LABEL} ribbon on) — try it, then add your own.`;
-  }
+    render();
+  });
+  $('undoBtn').addEventListener('click', undo);
+  $('redoBtn').addEventListener('click', redo);
+  $('exportOneBtn').addEventListener('click', () => exportSize(state.sizeId));
+  $('exportAllBtn').addEventListener('click', exportAll);
+  $('uploadBtn').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', (evt) => {
+    const file = evt.target.files && evt.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const id = addUpload(String(reader.result), file.name.replace(/\.[^.]+$/, '') || 'Your photo');
+      buildPhotoStrip();
+      commit();
+      state.panels[selected] = { ...state.panels[selected], photo: id };
+      render();
+    };
+    reader.readAsDataURL(file);
+    evt.target.value = '';
+  });
 }
-boot();
+
+async function init() {
+  buildButtons();
+  buildPhotoStrip();
+  wirePreview();
+  wireControls();
+  syncControls();
+  updateHistoryButtons();
+  images = await loadAllPhotos();
+  // The lettering fonts must be in before the first paint, or the cover
+  // draws with a fallback face. Anton and Pacifico are vendored under app/.
+  if (document.fonts) {
+    try {
+      await Promise.all([
+        document.fonts.load('64px Anton'),
+        document.fonts.load('32px Pacifico'),
+        document.fonts.ready,
+      ]);
+    } catch {
+      // A fallback face still draws; the export stays valid.
+    }
+  }
+  const shot = new URLSearchParams(location.search).get('shot');
+  if (shot && (await runShotScene(shot))) return;
+  render();
+}
+
+init().catch((err) => {
+  const note = $('loadError');
+  if (note) note.textContent = `Could not start the editor: ${err.message}`;
+  console.error(err);
+});
