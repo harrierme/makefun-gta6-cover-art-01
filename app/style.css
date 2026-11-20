@@ -3,8 +3,21 @@
    orange reserved for the export action. No gradient wash, no glass, no
    glow: the cover art carries the colour, the chrome stays quiet. */
 
-/* Fonts (Anton, Pacifico) load from Google Fonts CDN — see the <link> tags
-   in index.html. No local font files live in this repo. */
+@font-face {
+  font-family: 'Anton';
+  src: url('fonts/Anton-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Pacifico';
+  src: url('fonts/Pacifico-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
   --ink: #171310;
